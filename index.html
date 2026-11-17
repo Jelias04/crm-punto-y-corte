@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PipelineFlow CRM - Punto y Corte</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .kanban-col { min-height: auto; }
+        @media (min-width: 1280px) {
+            .kanban-col { min-height: 70vh; }
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 font-sans min-h-screen flex flex-col">
+
+    <!-- Header -->
+    <header class="bg-slate-800 border-b border-slate-700 px-4 sm:px-6 py-4 flex flex-wrap justify-between items-center gap-4">
+        <div class="flex items-center space-x-3">
+            <span class="bg-indigo-600 text-white p-2 rounded-xl font-bold text-xl">📊</span>
+            <div>
+                <h1 class="text-lg sm:text-xl font-bold tracking-tight">Punto y Corte CRM</h1>
+                <p class="text-xs text-slate-400">Sincronizado con Google Sheets</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap">
+            <span id="sync-status" class="text-xs px-3 py-1 bg-amber-500/20 text-amber-300 rounded-full border border-amber-500/30">Cargando datos...</span>
+            <button onclick="closeMonthCycle()" class="bg-emerald-700/80 hover:bg-emerald-600 text-emerald-100 border border-emerald-500/40 text-xs sm:text-sm font-medium px-3.5 py-2 rounded-lg transition" title="Archiva Ganado y Perdido">📦 Cierre de Mes</button>
+            <button onclick="syncWithGoogleSheets()" class="bg-slate-700 hover:bg-slate-600 text-xs sm:text-sm font-medium px-3.5 py-2 rounded-lg transition">🔄 Sincronizar</button>
+            <button onclick="openModal()" class="bg-indigo-600 hover:bg-indigo-500 text-xs sm:text-sm font-semibold px-4 py-2 rounded-lg transition shadow-lg shadow-indigo-600/30">+ Nuevo Negocio</button>
+        </div>
+    </header>
+
+    <!-- KPIs Directivos Alineados y Uniformes -->
+    <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4 p-4 sm:p-6 bg-slate-900/50">
+        <!-- 1. Valor Abierto Pipeline -->
+        <div class="bg-slate-800 border border-slate-700/60 p-4 rounded-xl shadow-sm flex flex-col justify-between">
+            <p class="text-xs font-medium text-slate-400">Valor Abierto Pipeline</p>
+            <h3 id="kpi-open" class="text-2xl font-bold mt-2 text-indigo-400">$0</h3>
+        </div>
+        <!-- 2. Ingresos Ganados -->
+        <div class="bg-slate-800 border border-slate-700/60 p-4 rounded-xl shadow-sm flex flex-col justify-between">
+            <p class="text-xs font-medium text-slate-400">Ingresos Ganados (Mes)</p>
+            <h3 id="kpi-won" class="text-2xl font-bold mt-2 text-cyan-400">$0</h3>
+        </div>
+        <!-- 3. Comisión Proyectada (Editable) -->
+        <div class="bg-slate-800 border border-slate-700/60 p-4 rounded-xl shadow-sm flex flex-col justify-between">
+            <div class="flex justify-between items-center">
+                <p class="text-xs font-medium text-slate-400">Comisión Proyectada</p>
+                <div class="flex items-center gap-1">
+                    <input type="number" id="commission-rate" min="0" max="100" value="10" oninput="saveAndVerifyCommission()" class="w-11 bg-slate-900 border border-emerald-500/50 rounded px-1 py-0.5 text-xs text-center text-emerald-300 font-bold focus:outline-none">
+                    <span class="text-xs text-emerald-300 font-bold">%</span>
+                </div>
+            </div>
+            <h3 id="kpi-commission" class="text-2xl font-bold mt-2 text-emerald-400">$0</h3>
+        </div>
+        <!-- 4. Anticipos / Saldo Pendiente (Solo Ganados) -->
+        <div class="bg-slate-800 border border-slate-700/60 p-4 rounded-xl shadow-sm flex flex-col justify-between">
+            <p class="text-xs font-medium text-slate-400">Anticipos / Saldo (Ganados)</p>
+            <div class="mt-2 flex flex-col text-xs space-y-1">
+                <div class="flex justify-between"><span class="text-slate-400">Anticipos:</span> <span id="kpi-advance-total" class="font-bold text-cyan-300">$0</span></div>
+                <div class="flex justify-between"><span class="text-slate-400">Por cobrar:</span> <span id="kpi-balance-total" class="font-bold text-rose-300">$0</span></div>
+            </div>
+        </div>
+        <!-- 5. Tarjeta de Meta y Presión -->
+        <div class="bg-slate-800 border border-rose-500/40 p-4 rounded-xl shadow-sm flex flex-col justify-between">
+            <div class="flex justify-between items-center">
+                <p id="goal-title" class="text-xs font-medium text-indigo-300 capitalize">Meta Mes</p>
+                <input type="text" id="monthly-goal" onfocus="unformatGoal(this)" onblur="formatGoal(this)" oninput="saveAndVerifyGoal()" class="w-28 bg-slate-900 border border-indigo-500/50 rounded px-2 py-0.5 text-xs text-right text-indigo-300 font-bold focus:outline-none">
+            </div>
+            <div class="my-1">
+                <span class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Falta por cumplir</span>
+                <h3 id="kpi-missing" class="text-xl font-black text-rose-400 tracking-tight">$0</h3>
+            </div>
+            <div>
+                <div class="flex justify-between text-xs font-semibold mb-1">
+                    <span id="countdown-text" class="text-amber-400 text-[11px]">⏳ Faltan -- días</span>
+                    <span id="kpi-goal-percent" class="text-emerald-400">0%</span>
+                </div>
+                <div class="w-full bg-slate-900 rounded-full h-2 border border-slate-700/50 overflow-hidden">
+                    <div id="goal-bar" class="bg-emerald-500 h-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Tablero Kanban -->
+    <main class="flex-1 px-4 sm:px-6 pb-8 overflow-x-auto">
+        <div id="kanban-board" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-4 xl:min-w-[1200px]">
+            <!-- Columnas generadas por JS -->
+        </div>
+    </main>
+
+    <!-- Modal para Agregar / Editar Negocio -->
+    <div id="deal-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm hidden items-center justify-center p-4 z-50">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-lg p-6 shadow-2xl">
+            <h3 id="modal-title" class="text-lg font-bold mb-4">Nuevo Negocio</h3>
+            <form id="deal-form" onsubmit="saveDeal(event)" class="space-y-4">
+                <input type="hidden" id="deal-id">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Compañía (Empresa)</label>
+                        <input type="text" id="deal-company" required placeholder="Ej. Master Line" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Nombre Contacto</label>
+                        <input type="text" id="deal-name" placeholder="Ej. Nelson Tamayo" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500">
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Celular o WA</label>
+                        <input type="text" id="deal-phone" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Email</label>
+                        <input type="email" id="deal-email" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500">
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Valor Total ($)</label>
+                        <input type="number" id="deal-value" value="0" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Anticipo ($)</label>
+                        <input type="number" id="deal-advance" value="0" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Etapa</label>
+                        <select id="deal-stage" onchange="autoSetProbability()" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500">
+                            <option value="prospecto">Prospecto</option>
+                            <option value="contacto">Contacto</option>
+                            <option value="propuesta">Propuesta</option>
+                            <option value="negociacion">Negociación</option>
+                            <option value="ganado">Ganado</option>
+                            <option value="perdido">Perdido</option>
+                        </select>
+                    </div>
+                </div>
+                <input type="hidden" id="deal-probability" value="20">
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Próxima Acción</label>
+                        <input type="text" id="deal-next-action" placeholder="Ej. Llamar viernes" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Fecha Cierre</label>
+                        <input type="date" id="deal-date" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Fecha Anticipo</label>
+                        <input type="date" id="deal-advance-date" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500">
+                    </div>
+                </div>
+                <div class="flex justify-end space-x-3 pt-2">
+                    <button type="button" onclick="closeModal()" class="bg-slate-700 hover:bg-slate-600 text-sm px-4 py-2 rounded-lg transition">Cancelar</button>
+                    <button type="submit" class="bg-indigo-600 hover:bg-indigo-500 text-sm font-semibold px-5 py-2 rounded-lg transition">Guardar Negocio</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzFwJBc0dH3O0jIcf9mukXJJYd_GkiRGsyh0basHphVIjuk_h9yCS2JA-u0U2I1cna7/exec";
+        
+        const stages = [
+            { id: 'prospecto', name: 'Prospecto', color: 'border-slate-600' },
+            { id: 'contacto', name: 'Contacto', color: 'border-blue-500/50' },
+            { id: 'propuesta', name: 'Propuesta', color: 'border-amber-500/50' },
+            { id: 'negociacion', name: 'Negociación', color: 'border-purple-500/50' },
+            { id: 'ganado', name: 'Ganado', color: 'border-emerald-500/50' },
+            { id: 'perdido', name: 'Perdido', color: 'border-rose-500/50' }
+        ];
+
+        const stageProbabilities = {
+            'prospecto': 20,
+            'contacto': 40,
+            'propuesta': 60,
+            'negociacion': 80,
+            'ganado': 100,
+            'perdido': 0
+        };
+
+        let deals = [];
+
+        function getTodayISO() {
+            const now = new Date();
+            const offset = now.getTimezoneOffset() * 60000;
+            return new Date(now.getTime() - offset).toISOString().split('T')[0];
+        }
+
+        function formatCleanDate(dateStr) {
+            if (!dateStr) return '';
+            const str = String(dateStr);
+            return str.includes('T') ? str.split('T')[0] : str;
+        }
+
+        function getStartInfo(id) {
+            const match = String(id).match(/^_(\d{4}-\d{2}-\d{2})_/);
+            const startDateStr = match ? match[1] : getTodayISO();
+            
+            const [y, m, d] = startDateStr.split('-').map(Number);
+            const startDate = new Date(y, m - 1, d);
+            
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            
+            const diffDays = Math.max(0, Math.round((today - startDate) / (1000 * 60 * 60 * 24)));
+            return { startDate: startDateStr, days: diffDays };
+        }
+
+        function getCurrentPeriodLabel() {
+            const now = new Date();
+            return now.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            const savedGoal = localStorage.getItem('punto_y_corte_goal') || '100000000';
+            const num = Number(savedGoal);
+            document.getElementById('monthly-goal').value = isNaN(num) ? savedGoal : num.toLocaleString('de-DE');
+
+            const savedComm = localStorage.getItem('punto_y_corte_comm') || '10';
+            document.getElementById('commission-rate').value = savedComm;
+            
+            document.getElementById('goal-title').textContent = `Meta ${getCurrentPeriodLabel()}`;
+
+            const now = new Date();
+            const ultimoDia = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+            const diasFaltantes = ultimoDia.getDate() - now.getDate();
+            document.getElementById('countdown-text').textContent = `⏳ Faltan ${diasFaltantes} días`;
+        });
+
+        function autoSetProbability() {
+            const stage = document.getElementById('deal-stage').value;
+            const probInput = document.getElementById('deal-probability');
+            if (stageProbabilities[stage] !== undefined) {
+                probInput.value = stageProbabilities[stage];
+            }
+        }
+
+        function unformatGoal(input) {
+            input.value = input.value.replace(/\./g, '');
+        }
+
+        function formatGoal(input) {
+            const val = Number(input.value.replace(/\./g, ''));
+            if (!isNaN(val) && val > 0) {
+                input.value = val.toLocaleString('de-DE');
+            }
+        }
+
+        function saveAndVerifyGoal() {
+            const rawVal = document.getElementById('monthly-goal').value.replace(/\./g, '');
+            localStorage.setItem('punto_y_corte_goal', rawVal);
+            updateKPIs();
+        }
+
+        function saveAndVerifyCommission() {
+            const commVal = document.getElementById('commission-rate').value;
+            localStorage.setItem('punto_y_corte_comm', commVal);
+            updateKPIs();
+        }
+
+        function getNumericGoal() {
+            const valStr = document.getElementById('monthly-goal').value.replace(/\./g, '');
+            return Number(valStr) || 1;
+        }
+
+        async function syncWithGoogleSheets() {
+            const statusEl = document.getElementById('sync-status');
+            statusEl.textContent = "Sincronizando...";
+            statusEl.className = "text-xs px-3 py-1 bg-indigo-500/20 text-indigo-300 rounded-full border border-indigo-500/30";
+            
+            try {
+                let response = await fetch(SCRIPT_URL);
+                let data = await response.json();
+                
+                deals = data.map(d => ({
+                    id: d.id || '_' + getTodayISO() + '_' + Math.random().toString(36).substr(2, 7),
+                    compania: d.compania || 'Sin compañía',
+                    nombre_contacto: d.nombre_contacto || '',
+                    celular_o_wa: d.celular_o_wa || '',
+                    email: d.email || '',
+                    valor: Number(d.valor || 0),
+                    anticipo: Number(d.anticipo || 0),
+                    fecha_anticipo: formatCleanDate(d.fecha_anticipo),
+                    stage: (d.stage || 'prospecto').toLowerCase().trim(),
+                    probabilidad: Number(d.probabilidad || 20),
+                    next_action: d.next_action || '',
+                    fecha: formatCleanDate(d.fecha)
+                }));
+
+                renderKanban();
+                updateKPIs();
+                statusEl.textContent = "Sincronizado con Sheets ✅";
+                statusEl.className = "text-xs px-3 py-1 bg-emerald-500/20 text-emerald-300 rounded-full border border-emerald-500/30";
+            } catch (error) {
+                console.error("Error sincronizando:", error);
+                statusEl.textContent = "Error de conexión ❌";
+                statusEl.className = "text-xs px-3 py-1 bg-rose-500/20 text-rose-300 rounded-full border border-rose-500/30";
+            }
+        }
+
+        async function saveToGoogleSheets() {
+            try {
+                const payload = JSON.stringify(deals.map(d => ({
+                    id: d.id,
+                    compania: d.compania,
+                    nombre_contacto: d.nombre_contacto,
+                    celular_o_wa: d.celular_o_wa,
+                    email: d.email,
+                    valor: d.valor,
+                    anticipo: d.anticipo,
+                    fecha_anticipo: d.fecha_anticipo,
+                    stage: d.stage,
+                    probabilidad: d.probabilidad,
+                    next_action: d.next_action,
+                    fecha: d.fecha
+                })));
+
+                await fetch(`${SCRIPT_URL}?action=save&data=${encodeURIComponent(payload)}`);
+            } catch (error) {
+                console.error("Error guardando en Sheets:", error);
+            }
+        }
+
+        async function closeMonthCycle() {
+            const closedDeals = deals.filter(d => d.stage === 'ganado' || d.stage === 'perdido');
+            if (closedDeals.length === 0) {
+                alert('No hay negocios en Ganado o Perdido para archivar en este momento.');
+                return;
+            }
+
+            const wonTotal = closedDeals
+                .filter(d => d.stage === 'ganado')
+                .reduce((sum, d) => sum + d.valor, 0);
+
+            const periodLabel = getCurrentPeriodLabel().toUpperCase();
+            const confirmMsg = `📦 CIERRE DE MES (${periodLabel})\n\n` +
+                `• Se archivarán ${closedDeals.length} negocios cerrados en la pestaña "Historico" de Google Sheets.\n` +
+                `• Total Ventas Ganadas del periodo: $${wonTotal.toLocaleString()}\n` +
+                `• Las columnas Ganado y Perdido quedarán limpias para el nuevo mes.\n` +
+                `• Tus negocios activos (Prospecto a Negociación) permanecerán intactos.\n\n` +
+                `¿Deseas ejecutar el cierre de mes ahora?`;
+
+            if (!confirm(confirmMsg)) return;
+
+            const statusEl = document.getElementById('sync-status');
+            statusEl.textContent = "Archivando cierre...";
+            statusEl.className = "text-xs px-3 py-1 bg-amber-500/20 text-amber-300 rounded-full border border-amber-500/30";
+
+            try {
+                await fetch(`${SCRIPT_URL}?action=archive&period=${encodeURIComponent(periodLabel)}&data=${encodeURIComponent(JSON.stringify(closedDeals))}`);
+                
+                deals = deals.filter(d => d.stage !== 'ganado' && d.stage !== 'perdido');
+                
+                renderKanban();
+                updateKPIs();
+                
+                await saveToGoogleSheets();
+                await syncWithGoogleSheets();
+                
+                alert(`✅ Cierre de mes completado. Los negocios cerrados ya están respaldados en la pestaña "Historico" de tu Google Sheets.`);
+            } catch (error) {
+                console.error("Error en cierre de mes:", error);
+                alert("❌ Hubo un error al archivar. Verifica tu conexión e intenta de nuevo.");
+            }
+        }
+
+        function renderKanban() {
+            const board = document.getElementById('kanban-board');
+            board.innerHTML = '';
+
+            stages.forEach(stage => {
+                const colDeals = deals.filter(d => d.stage === stage.id);
+                const colValue = colDeals.reduce((sum, d) => sum + d.valor, 0);
+
+                const colDiv = document.createElement('div');
+                colDiv.className = `bg-slate-800/80 border ${stage.color} rounded-xl p-3 sm:p-4 flex flex-col kanban-col`;
+                colDiv.innerHTML = `
+                    <div class="flex justify-between items-center mb-3 pb-2 border-b border-slate-700/50">
+                        <h2 class="font-bold text-sm tracking-wide uppercase">${stage.name}</h2>
+                        <span class="text-xs bg-slate-700 px-2 py-0.5 rounded-full font-semibold">${colDeals.length}</span>
+                    </div>
+                    <div class="text-xs text-slate-400 mb-3 font-semibold">$${colValue.toLocaleString()}</div>
+                    <div class="flex-1 space-y-3 overflow-y-auto">
+                        ${colDeals.map(deal => {
+                            const balance = deal.valor - deal.anticipo;
+                            const startInfo = getStartInfo(deal.id);
+                            const isClosed = deal.stage === 'ganado' || deal.stage === 'perdido';
+                            
+                            let badgeStyle = 'bg-slate-800 text-slate-300 border-slate-700';
+                            let trafficIcon = '🏁';
+                            let daysText = 'Cerrado';
+
+                            if (!isClosed) {
+                                daysText = startInfo.days === 0 ? 'Hoy' : `${startInfo.days} ${startInfo.days === 1 ? 'día' : 'días'}`;
+                                if (startInfo.days <= 25) {
+                                    badgeStyle = 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 font-semibold';
+                                    trafficIcon = '🟢';
+                                } else if (startInfo.days <= 45) {
+                                    badgeStyle = 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-bold';
+                                    trafficIcon = '🟡';
+                                } else {
+                                    badgeStyle = 'bg-rose-500/20 text-rose-300 border-rose-500/50 font-bold';
+                                    trafficIcon = '🔴';
+                                }
+                            }
+
+                            return `
+                            <div class="bg-slate-900 border border-slate-700/80 p-3.5 rounded-xl shadow-sm hover:border-indigo-500 transition group relative w-full">
+                                <div class="flex justify-between items-start gap-2">
+                                    <h4 class="font-black text-base text-indigo-200 tracking-tight break-words">${deal.compania}</h4>
+                                    <div class="flex gap-1 shrink-0">
+                                        <button onclick="editDeal('${deal.id}')" class="text-slate-400 hover:text-white p-1 text-xs sm:opacity-0 sm:group-hover:opacity-100 transition">✏️</button>
+                                        <button onclick="deleteDeal('${deal.id}')" class="text-slate-400 hover:text-rose-400 p-1 text-xs sm:opacity-0 sm:group-hover:opacity-100 transition">🗑️</button>
+                                    </div>
+                                </div>
+                                <p class="text-xs text-slate-400 font-medium mt-0.5">👤 ${deal.nombre_contacto || 'Sin contacto'}</p>
+                                
+                                <div class="mt-2 flex flex-wrap justify-between items-center gap-1 text-[10px] text-slate-400">
+                                    <span>🚀 Inicio: ${startInfo.startDate}</span>
+                                    <span class="px-2 py-0.5 rounded-full border ${badgeStyle}">${trafficIcon} ${daysText}</span>
+                                </div>
+
+                                <div class="mt-2.5 pt-2 border-t border-slate-800 space-y-1 text-xs">
+                                    <div class="flex justify-between font-bold">
+                                        <span class="text-slate-300">Total:</span>
+                                        <span class="text-emerald-400">$${deal.valor.toLocaleString()}</span>
+                                    </div>
+                                    <div class="flex justify-between text-[11px]">
+                                        <span class="text-slate-400">Anticipo:</span>
+                                        <span class="text-cyan-400">$${deal.anticipo.toLocaleString()}</span>
+                                    </div>
+                                    <div class="flex justify-between text-[11px] font-bold">
+                                        <span class="text-rose-300">Saldo pendiente:</span>
+                                        <span class="text-rose-400">$${balance.toLocaleString()}</span>
+                                    </div>
+                                </div>
+
+                                ${deal.fecha_anticipo ? `<div class="mt-2 text-[10px] text-cyan-300/80">💳 Anticipo fecha: ${deal.fecha_anticipo}</div>` : ''}
+                                ${deal.next_action ? `<div class="mt-2 text-[11px] bg-slate-800 text-slate-300 px-2 py-1 rounded border border-slate-700/50 break-words">📌 ${deal.next_action}</div>` : ''}
+                                ${deal.fecha ? `<div class="mt-1 text-[10px] text-slate-400">📅 Cierre: ${deal.fecha}</div>` : ''}
+                            </div>
+                        `;}).join('')}
+                    </div>
+                `;
+                board.appendChild(colDiv);
+            });
+        }
+
+        function updateKPIs() {
+            const openDeals = deals.filter(d => d.stage !== 'ganado' && d.stage !== 'perdido');
+            const totalOpen = openDeals.reduce((sum, d) => sum + d.valor, 0);
+
+            const wonDeals = deals.filter(d => d.stage === 'ganado');
+            const totalWon = wonDeals.reduce((sum, d) => sum + d.valor, 0);
+
+            const commRate = Number(document.getElementById('commission-rate').value) || 0;
+            const projectedComm = (totalWon * commRate) / 100;
+
+            const wonAdvanceTotal = wonDeals.reduce((sum, d) => sum + d.anticipo, 0);
+            const wonBalanceTotal = wonDeals.reduce((sum, d) => sum + (d.valor - d.anticipo), 0);
+
+            const monthlyGoal = getNumericGoal();
+            const missingValue = Math.max(monthlyGoal - totalWon, 0);
+            const rawPercent = Math.round((totalWon / monthlyGoal) * 100);
+            const goalPercent = Math.min(rawPercent, 100);
+
+            document.getElementById('kpi-open').textContent = `$${totalOpen.toLocaleString()}`;
+            document.getElementById('kpi-won').textContent = `$${totalWon.toLocaleString()}`;
+            document.getElementById('kpi-commission').textContent = `$${Math.round(projectedComm).toLocaleString()}`;
+            document.getElementById('kpi-advance-total').textContent = `$${wonAdvanceTotal.toLocaleString()}`;
+            document.getElementById('kpi-balance-total').textContent = `$${wonBalanceTotal.toLocaleString()}`;
+            
+            document.getElementById('kpi-missing').textContent = `$${missingValue.toLocaleString()}`;
+            document.getElementById('kpi-goal-percent').textContent = `${rawPercent}%`;
+            document.getElementById('goal-bar').style.width = `${goalPercent}%`;
+        }
+
+        function openModal() {
+            document.getElementById('deal-id').value = '';
+            document.getElementById('deal-form').reset();
+            document.getElementById('deal-probability').value = '20';
+            document.getElementById('modal-title').textContent = 'Nuevo Negocio';
+            document.getElementById('deal-modal').classList.remove('hidden');
+            document.getElementById('deal-modal').classList.add('flex');
+        }
+
+        function closeModal() {
+            document.getElementById('deal-modal').classList.remove('flex');
+            document.getElementById('deal-modal').classList.add('hidden');
+        }
+
+        function editDeal(id) {
+            const deal = deals.find(d => d.id === id);
+            if (!deal) return;
+            document.getElementById('deal-id').value = deal.id;
+            document.getElementById('deal-company').value = deal.compania;
+            document.getElementById('deal-name').value = deal.nombre_contacto;
+            document.getElementById('deal-phone').value = deal.celular_o_wa;
+            document.getElementById('deal-email').value = deal.email;
+            document.getElementById('deal-value').value = deal.valor;
+            document.getElementById('deal-advance').value = deal.anticipo;
+            document.getElementById('deal-probability').value = deal.probabilidad;
+            document.getElementById('deal-stage').value = deal.stage;
+            document.getElementById('deal-next-action').value = deal.next_action;
+            document.getElementById('deal-date').value = deal.fecha;
+            document.getElementById('deal-advance-date').value = deal.fecha_anticipo;
+            document.getElementById('modal-title').textContent = 'Editar Negocio';
+            document.getElementById('deal-modal').classList.remove('hidden');
+            document.getElementById('deal-modal').classList.add('flex');
+        }
+
+        async function saveDeal(e) {
+            e.preventDefault();
+            const id = document.getElementById('deal-id').value;
+            const dealData = {
+                id: id || '_' + getTodayISO() + '_' + Math.random().toString(36).substr(2, 7),
+                compania: document.getElementById('deal-company').value,
+                nombre_contacto: document.getElementById('deal-name').value,
+                celular_o_wa: document.getElementById('deal-phone').value,
+                email: document.getElementById('deal-email').value,
+                valor: Number(document.getElementById('deal-value').value),
+                anticipo: Number(document.getElementById('deal-advance').value),
+                fecha_anticipo: document.getElementById('deal-advance-date').value,
+                probabilidad: Number(document.getElementById('deal-probability').value),
+                stage: document.getElementById('deal-stage').value,
+                next_action: document.getElementById('deal-next-action').value,
+                fecha: document.getElementById('deal-date').value
+            };
+
+            if (id) {
+                const index = deals.findIndex(d => d.id === id);
+                if (index !== -1) deals[index] = dealData;
+            } else {
+                deals.push(dealData);
+            }
+
+            closeModal();
+            renderKanban();
+            updateKPIs();
+            await saveToGoogleSheets();
+            syncWithGoogleSheets();
+        }
+
+        async function deleteDeal(id) {
+            if (confirm('¿Estás seguro de eliminar este negocio?')) {
+                deals = deals.filter(d => d.id !== id);
+                renderKanban();
+                updateKPIs();
+                await saveToGoogleSheets();
+                syncWithGoogleSheets();
+            }
+        }
+
+        // Cargar datos al iniciar
+        syncWithGoogleSheets();
+    </script>
+</body>
+</html>
